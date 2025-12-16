@@ -5,7 +5,7 @@ pipeline {
         // Nome dos recursos (Deployment, Service, BuildConfig)
         APP_NAME = 'supergateway-mcp' 
         // Nome do projeto onde todos os recursos estão (o novo namespace)
-        PROJECT  = 'mcp' 
+        PROJECT = 'mcp' 
     }
 
     stages {
