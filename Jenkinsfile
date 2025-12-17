@@ -4,6 +4,7 @@ pipeline {
     environment {
         APP_NAME = 'supergateway-mcp'
         PROJECT  = 'mcp'
+        IMAGE_TAG = "${BUILD_NUMBER}"
     }
 
     stages {
@@ -14,34 +15,44 @@ pipeline {
                     openshift.withCluster() {
                         openshift.withProject(PROJECT) {
 
-                            echo "Disparando build binário do ${APP_NAME}"
+                            echo "Build da imagem ${APP_NAME}:${IMAGE_TAG}"
 
                             openshift.startBuild(
                                 APP_NAME,
                                 "--from-dir=.",
-                                "--follow"
+                                "--follow",
+                                "--env=IMAGE_TAG=${IMAGE_TAG}"
                             )
-
-                            echo "Build concluído com sucesso"
                         }
                     }
                 }
             }
         }
 
-        stage('Deploy (Rollout Restart)') {
+        stage('Atualizar Deployment para nova tag') {
             steps {
                 script {
                     openshift.withCluster() {
                         openshift.withProject(PROJECT) {
 
-                            echo "Forçando rollout do Deployment ${APP_NAME}"
+                            echo "Atualizando Deployment para tag ${IMAGE_TAG}"
 
                             sh """
-                              oc rollout restart deployment/${APP_NAME} -n ${PROJECT}
+                              oc set image deployment/${APP_NAME} \
+                                ${APP_NAME}=image-registry.openshift-image-registry.svc:5000/${PROJECT}/${APP_NAME}:${IMAGE_TAG} \
+                                -n ${PROJECT}
                             """
+                        }
+                    }
+                }
+            }
+        }
 
-                            echo "Aguardando rollout finalizar"
+        stage('Aguardar Rollout') {
+            steps {
+                script {
+                    openshift.withCluster() {
+                        openshift.withProject(PROJECT) {
 
                             openshift
                                 .selector('deployment', APP_NAME)
@@ -56,10 +67,10 @@ pipeline {
 
     post {
         success {
-            echo "🚀 Deploy do ${APP_NAME} realizado com sucesso"
+            echo "🚀 Deploy ${APP_NAME}:${IMAGE_TAG} realizado com sucesso"
         }
         failure {
-            echo "❌ Pipeline falhou — verifique o BuildConfig ${APP_NAME}"
+            echo "❌ Falha no deploy da tag ${IMAGE_TAG}"
         }
     }
 }
