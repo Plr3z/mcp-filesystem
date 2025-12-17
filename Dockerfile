@@ -26,4 +26,5 @@ EXPOSE 3001
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 
-ENTRYPOINT ["/bin/sh","-c","echo 'Iniciando Supergateway com MCP Filesystem (S3 API, sem FUSE)...' && supergateway --stdio \"npx -y @modelcontextprotocol/server-filesystem s3://$S3_BUCKET/$S3_PREFIX\" --port 3001 --baseUr]()
+# ENTRYPOINT seguro sem script externo
+ENTRYPOINT ["/bin/sh", "-c", "echo 'Iniciando Supergateway com MCP Filesystem (S3 API, sem FUSE)...' && supergateway --stdio \"npx -y @modelcontextprotocol/server-filesystem s3://$S3_BUCKET/$S3_PREFIX\" --port 3001 --baseUrl http://0.0.0.0:3001 --ssePath /sse --messagePath /message"]
