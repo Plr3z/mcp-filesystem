@@ -1,24 +1,41 @@
 FROM supercorp/supergateway:latest
 
 USER root
-RUN apk add --no-cache nodejs npm ca-certificates
+
+# Instala Node.js, NPM e o AWS CLI v2
+RUN apk add --no-cache nodejs npm ca-certificates aws-cli
 
 WORKDIR /app
 
-# instalar MCP filesystem localmente (não global)
+# Instala o MCP Filesystem localmente
 RUN npm install @modelcontextprotocol/server-filesystem
 
-# variáveis de ambiente padrão
-ENV AWS_ACCESS_KEY_ID=""
-ENV AWS_SECRET_ACCESS_KEY=""
-ENV AWS_REGION="us-east-2"
-ENV S3_BUCKET=""
-ENV S3_PREFIX="filesystem"
+# Cria a pasta que servirá de cache local para o S3
+# O diretório /mnt/s3-local será o "espelho" do seu bucket
+RUN mkdir -p /mnt/s3-local && chmod 777 /mnt/s3-local
+
+# Variáveis de ambiente (Devem ser preenchidas no Deployment do OpenShift)
+ENV AWS_ACCESS_KEY_ID="" \
+    AWS_SECRET_ACCESS_KEY="" \
+    AWS_REGION="us-east-2" \
+    S3_BUCKET=""
 
 EXPOSE 3001
 
-# muda para UID não-root (OpenShift vai sobrescrever)
+# O OpenShift roda com usuários aleatórios, então garantimos permissão no /app
+RUN chown -R 1001:0 /app /mnt/s3-local
 USER 1001
 
-# ENTRYPOINT seguro, usando npx local e S3 URI
-ENTRYPOINT ["/bin/sh","-c","echo 'Iniciando Supergateway com MCP Filesystem (S3 API, sem FUSE)...' && npx @modelcontextprotocol/server-filesystem 's3://'$S3_BUCKET'/'$S3_PREFIX --stdio --port 3001 --baseUrl http://0.0.0.0:3001 --ssePath /sse --messagePath /message"]
+# ENTRYPOINT que sincroniza na subida
+# Nota: Ele faz o download (sync) do S3 para o local e depois abre o MCP nessa pasta
+ENTRYPOINT ["/bin/sh", "-c", "\
+  echo '📥 Sincronizando arquivos do S3 para o disco local...'; \
+  aws s3 sync s3://${S3_BUCKET} /mnt/s3-local --region ${AWS_REGION}; \
+  echo '🚀 Iniciando MCP Filesystem em /mnt/s3-local...'; \
+  npx @modelcontextprotocol/server-filesystem /mnt/s3-local \
+    --stdio \
+    --port 3001 \
+    --baseUrl http://0.0.0.0:3001 \
+    --ssePath /sse \
+    --messagePath /message \
+"]
