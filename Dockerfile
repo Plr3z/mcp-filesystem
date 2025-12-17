@@ -1,22 +1,14 @@
 FROM supercorp/supergateway:latest
 
 USER root
-
 RUN apk add --no-cache nodejs npm ca-certificates
 
 WORKDIR /app
 
-# cria usuário não-root
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# usar cache npm no diretório temporário gravável
+ENV npm_config_cache=/tmp/.npm
 
-# cria cache npm seguro
-RUN mkdir -p /app/.npm && chown -R appuser:appgroup /app/.npm
-ENV npm_config_cache=/app/.npm
-
-# muda para usuário não-root antes de instalar globalmente
-USER appuser
-
-# instala MCP filesystem com permissão para usuário não-root
+# instalar MCP filesystem globalmente com permissões seguras
 RUN npm install -g --unsafe-perm @modelcontextprotocol/server-filesystem
 
 # variáveis de ambiente
@@ -28,5 +20,7 @@ ENV S3_PREFIX="filesystem"
 
 EXPOSE 3001
 
-# ENTRYPOINT seguro sem criar script externo
+# rodar como qualquer UID (OpenShift vai setar automaticamente)
+USER 1001
+
 ENTRYPOINT ["/bin/sh", "-c", "echo 'Iniciando Supergateway com MCP Filesystem (S3 API, sem FUSE)...' && supergateway --stdio \"npx -y @modelcontextprotocol/server-filesystem s3://$S3_BUCKET/$S3_PREFIX\" --port 3001 --baseUrl http://0.0.0.0:3001 --ssePath /sse --messagePath /message"]
