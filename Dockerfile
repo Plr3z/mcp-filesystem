@@ -21,4 +21,4 @@ EXPOSE 3001
 USER 1001
 
 # ENTRYPOINT seguro, usando npx local e S3 URI
-ENTRYPOINT ["/bin/sh","-c","echo 'Iniciando Supergateway com MCP Filesystem (S3 API, sem FUSE)...' && npx @modelcontextprotocol/server-filesystem s3://$S3_BUCKET/$S3_PREFIX --stdio --port 3001 --baseUrl http://0.0.0.0:3001 --ssePath /sse --messagePath /message"]
+ENTRYPOINT ["/bin/sh","-c","echo 'Iniciando Supergateway com MCP Filesystem (S3 API, sem FUSE)...' && npx @modelcontextprotocol/server-filesystem 's3://'$S3_BUCKET'/'$S3_PREFIX --stdio --port 3001 --baseUrl http://0.0.0.0:3001 --ssePath /sse --messagePath /message"]
