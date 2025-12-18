@@ -4,13 +4,15 @@ pipeline {
     environment {
         NAMESPACE = 'mcp'
         APP_NAME  = 'supergateway-s3'
+        // Usamos o número do build do Jenkins como tag da imagem
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        ROUTE_HOST = "filesystem.apps.prd.meuapp.ai"
     }
 
     stages {
         stage('Prepare') {
             steps {
                 script {
-                    // Garante que estamos no projeto correto
                     sh "oc project ${NAMESPACE}"
                 }
             }
@@ -18,21 +20,35 @@ pipeline {
 
         stage('Build Image') {
             steps {
-                echo "Enviando código do workspace para o OpenShift Build..."
+                echo "Iniciando Build com a tag: ${IMAGE_TAG}"
                 script {
-                    // O Jenkins envia o conteúdo atual do diretório para o BuildConfig
-                    // Isso ignora a necessidade do OpenShift acessar o Git diretamente
+                    // 1. Inicia o build enviando o código local
+                    // 2. Após o build, tagueia a imagem no ImageStream com o número do build
                     sh "oc start-build ${APP_NAME}-build --from-dir=. --follow --wait"
+                    sh "oc tag ${APP_NAME}:latest ${APP_NAME}:${IMAGE_TAG}"
                 }
             }
         }
 
-        stage('Deploy') {
+        stage('Deploy & Route') {
             steps {
-                echo "Verificando Rollout..."
+                echo "Atualizando Deployment e Garantindo a Route..."
                 script {
-                    // O OpenShift normalmente inicia o deploy automaticamente ao atualizar o ImageStream
-                    // Este comando apenas monitora até que o deploy esteja pronto
+                    // Atualiza o Deployment para usar a nova tag específica deste build
+                    sh "oc set image deployment/${APP_NAME} gateway=${APP_NAME}:${IMAGE_TAG}"
+                    
+                    // Verifica se a Route já existe; se não, cria.
+                    // O '|| true' evita que a pipeline quebre se a rota já existir
+                    sh """
+                        oc get route ${APP_NAME}-route || \
+                        oc create route edge ${APP_NAME}-route --service=${APP_NAME}-service --hostname=${ROUTE_HOST}
+                    """
+
+                    // Aplica as anotações necessárias para o SSE funcionar bem no HAProxy
+                    sh "oc annotate route ${APP_NAME}-route --overwrite haproxy.router.openshift.io/timeout=60s"
+                    sh "oc annotate route ${APP_NAME}-route --overwrite haproxy.router.openshift.io/disable_proxy_headers=true"
+
+                    // Aguarda o rollout completar
                     sh "oc rollout status deployment/${APP_NAME} --timeout=5m"
                 }
             }
@@ -41,7 +57,10 @@ pipeline {
 
     post {
         success {
-            echo "Deploy realizado com sucesso em: http://seu-route-ou-ip:3001"
+            echo "--------------------------------------------------------"
+            echo "DEPLOY SUCESSO! Build: ${IMAGE_TAG}"
+            echo "URL: https://${ROUTE_HOST}/sse"
+            echo "--------------------------------------------------------"
         }
     }
 }
