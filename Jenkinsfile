@@ -1,15 +1,47 @@
 pipeline {
     agent any
+
+    environment {
+        NAMESPACE = 'mcp'
+        APP_NAME  = 'supergateway-s3'
+    }
+
     stages {
-        stage('Build & Deploy') {
+        stage('Prepare') {
             steps {
                 script {
-                    // Isso aciona o OpenShift para ler o seu Dockerfile e criar a imagem
-                    sh "oc start-build supergateway-mcp --from-dir=. --follow -n mcp"
-                    // Isso garante que o Deployment use a nova imagem
-                    sh "oc rollout status deployment/supergateway-mcp -n mcp"
+                    // Garante que estamos no projeto correto
+                    sh "oc project ${NAMESPACE}"
                 }
             }
+        }
+
+        stage('Build Image') {
+            steps {
+                echo "Enviando código do workspace para o OpenShift Build..."
+                script {
+                    // O Jenkins envia o conteúdo atual do diretório para o BuildConfig
+                    // Isso ignora a necessidade do OpenShift acessar o Git diretamente
+                    sh "oc start-build ${APP_NAME}-build --from-dir=. --follow --wait"
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo "Verificando Rollout..."
+                script {
+                    // O OpenShift normalmente inicia o deploy automaticamente ao atualizar o ImageStream
+                    // Este comando apenas monitora até que o deploy esteja pronto
+                    sh "oc rollout status deployment/${APP_NAME} --timeout=5m"
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Deploy realizado com sucesso em: http://seu-route-ou-ip:3001"
         }
     }
 }
