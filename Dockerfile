@@ -21,6 +21,8 @@ ENV AWS_REGION="us-east-2"
 
 EXPOSE 3001
 
+# ... (mantenha o topo igual)
+
 ENTRYPOINT ["/bin/sh", "-c", "\
   echo 'Sincronizando S3...' && \
   rclone sync :s3:$S3_BUCKET /app/s3data \
@@ -31,7 +33,8 @@ ENTRYPOINT ["/bin/sh", "-c", "\
   echo 'Iniciando Supergateway...' && \
   supergateway --stdio \"mcp-server-filesystem /app/s3data\" \
     --port 3001 \
-    --baseUrl http://0.0.0.0:3001 \
+    --baseUrl \"$EXTERNAL_URL\" \
+    --cors=\"*\" \
     --ssePath /sse \
     --messagePath /message \
 "]
