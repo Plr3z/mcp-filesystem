@@ -1,40 +1,32 @@
-FROM supercorp/supergateway:latest
+FROM node:20-alpine
 
-USER root
+# Instala rclone e dependências
+RUN apk add --no-cache rclone ca-certificates fuse3
 
-# Dependências necessárias
-RUN apk add --no-cache \
-    fuse \
-    s3fs-fuse \
-    nodejs \
-    npm \
-    ca-certificates
+WORKDIR /app
 
-RUN echo "user_allow_other" >> /etc/fuse.conf
+# Criamos as pastas onde o S3 será "espelhado"
+RUN mkdir -p /app/s3data /app/.config/rclone && \
+    chmod -R 777 /app
 
-RUN mkdir -p /mnt/s3/filesystem
-
-ENV AWSACCESSKEYID=""
-ENV AWSSECRETACCESSKEY=""
-ENV S3_BUCKET=""
+# Variáveis para o Rclone (usaremos as ENVs que você já tem)
+ENV RCLONE_CONFIG_MYS3_TYPE=s3 \
+    RCLONE_CONFIG_MYS3_PROVIDER=AWS \
+    RCLONE_CONFIG_MYS3_REGION=us-east-2 \
+    RCLONE_CONFIG_MYS3_ACCESS_KEY_ID=$AWSACCESSKEYID \
+    RCLONE_CONFIG_MYS3_SECRET_ACCESS_KEY=$AWSSECRETACCESSKEY
 
 EXPOSE 3001
 
+# O segredo aqui: rclone serve http ou rclone mount em modo simples
+# Vamos usar o rclone para sincronizar ou montar em background
 ENTRYPOINT ["/bin/sh", "-c", "\
-  echo \"$AWSACCESSKEYID:$AWSSECRETACCESSKEY\" > /etc/passwd-s3fs && \
-  chmod 600 /etc/passwd-s3fs && \
-  mkdir -p /mnt/s3/filesystem && \
-  echo 'Montando S3...' && \
-  s3fs $S3_BUCKET /mnt/s3/filesystem \
-    -o passwd_file=/etc/passwd-s3fs \
-    -o allow_other \
-    -o nonempty \
-    -o endpoint=us-east-2 \
-    -o dbglevel=info & \  
+  echo 'Iniciando sincronização do S3...' && \
+  rclone config create mys3 s3 env_auth=true region=us-east-2 && \
+  (rclone mount mys3:$S3_BUCKET /app/s3data --vfs-cache-mode full --daemon-timeout 10m --allow-other --vfs-cache-max-age 24h &) && \
   sleep 5 && \
-  echo 'Bucket montado com sucesso!' && \
-  echo 'Iniciando Supergateway com MCP Filesystem...' && \
-  supergateway --stdio \"npx -y @modelcontextprotocol/server-filesystem /mnt/s3/filesystem\" \
+  echo 'Iniciando Supergateway com Filesystem MCP...' && \
+  supergateway --stdio \"npx -y @modelcontextprotocol/server-filesystem /app/s3data\" \
     --port 3001 \
     --baseUrl http://0.0.0.0:3001 \
     --ssePath /sse \
