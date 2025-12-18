@@ -15,14 +15,13 @@ EXPOSE 3001
 
 # Mudança: Passamos as variáveis diretamente no 'rclone config create'
 ENTRYPOINT ["/bin/sh", "-c", "\
-  echo 'Configurando Rclone com chaves diretas...' && \
-  rclone config create mys3 s3 \
-    provider=AWS \
-    access_key_id=\"$AWS_ACCESS_KEY_ID\" \
-    secret_access_key=\"$AWS_SECRET_ACCESS_KEY\" \
-    region=\"$AWS_REGION\" && \
   echo 'Sincronizando arquivos do S3...' && \
-  rclone sync mys3:$S3_BUCKET /app/s3data -v && \
+  rclone sync :s3:$S3_BUCKET /app/s3data \
+    --s3-provider=AWS \
+    --s3-access-key-id=\"$AWS_ACCESS_KEY_ID\" \
+    --s3-secret-access-key=\"$AWS_SECRET_ACCESS_KEY\" \
+    --s3-region=\"$AWS_REGION\" \
+    -v && \
   echo 'Iniciando Supergateway...' && \
   supergateway --stdio \"npx @modelcontextprotocol/server-filesystem /app/s3data\" \
     --port 3001 \
