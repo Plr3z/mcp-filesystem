@@ -4,24 +4,25 @@ RUN apk add --no-cache rclone ca-certificates
 
 WORKDIR /app
 
-# Instalamos os pacotes globalmente
-RUN npm install -g supergateway @modelcontextprotocol/server-filesystem
+# Instalamos os pacotes e limpamos o cache para economizar espaço
+RUN npm install -g supergateway @modelcontextprotocol/server-filesystem && \
+    npm cache clean --force
 
-# Criamos as pastas necessárias com permissões amplas para o OpenShift
-RUN mkdir -p /app/s3data /app/config /app/cache /app/.npm-cache && \
+# Criamos as pastas necessárias com permissões totais para o usuário do OpenShift
+RUN mkdir -p /app/s3data /app/config /app/cache /app/.npm-global && \
     chmod -R 777 /app
 
-# Variáveis de ambiente para evitar que o NPM/Rclone tentem escrever na raiz /
+# Configurações para o Rclone e NPM rodarem sem root
 ENV RCLONE_CONFIG=/app/config/rclone.conf
 ENV RCLONE_CACHE_DIR=/app/cache
-ENV NPM_CONFIG_CACHE=/app/.npm-cache
+ENV NPM_CONFIG_PREFIX=/app/.npm-global
+ENV PATH=$PATH:/app/.npm-global/bin:/usr/local/bin
 ENV AWS_REGION="us-east-2"
-ENV PATH=$PATH:/usr/local/bin
 
 EXPOSE 3001
 
 ENTRYPOINT ["/bin/sh", "-c", "\
-  echo 'Sincronizando arquivos do S3...' && \
+  echo 'Sincronizando S3...' && \
   rclone sync :s3:$S3_BUCKET /app/s3data \
     --s3-provider=AWS \
     --s3-access-key-id=\"$AWS_ACCESS_KEY_ID\" \
