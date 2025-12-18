@@ -2,65 +2,48 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME = 'supergateway-mcp'
-        PROJECT  = 'mcp'
-        IMAGE_TAG = "${BUILD_NUMBER}"
+        // Nome do projeto no OpenShift
+        NAMESPACE = "mcp"
+        // Nome do BuildConfig que criamos no YAML anterior
+        BUILD_NAME = "supergateway-mcp"
     }
 
     stages {
-        stage('Build no OpenShift') {
+        stage('Prepare') {
+            steps {
+                echo "Iniciando build para o projeto ${NAMESPACE}..."
+                // Garante que estamos no projeto correto
+                sh "oc project ${NAMESPACE}"
+            }
+        }
+
+        stage('Build Image') {
             steps {
                 script {
-                    echo "Disparando build binário do ${APP_NAME}:latest"
-
-                    // Garantir que o workspace do Jenkins contenha o Dockerfile na raiz
-                    sh """
-                        if [ ! -f ${WORKSPACE}/Dockerfile ]; then
-                            echo "ERRO: Dockerfile não encontrado no workspace!"
-                            exit 1
-                        fi
-                    """
-
-                    // Start build binário no OpenShift
-                    sh "oc start-build ${APP_NAME} --from-dir=${WORKSPACE} --follow -n ${PROJECT}"
+                    echo "Enviando código para o OpenShift Build Service..."
+                    // O comando abaixo pega o Dockerfile e arquivos locais e envia para o OpenShift
+                    sh "oc start-build ${BUILD_NAME} --from-dir=. --follow"
                 }
             }
         }
 
-        stage('Criar tag BUILD_NUMBER') {
+        stage('Deploy & Verify') {
             steps {
                 script {
-                    echo "Criando tag ${IMAGE_TAG} para a imagem buildada"
-                    sh "oc tag ${PROJECT}/${APP_NAME}:latest ${PROJECT}/${APP_NAME}:${IMAGE_TAG} --alias"
-                }
-            }
-        }
-
-        stage('Atualizar Deployment para nova tag') {
-            steps {
-                script {
-                    echo "Atualizando Deployment para tag ${IMAGE_TAG}"
-                    sh """
-                      oc set image deployment/${APP_NAME} \
-                        ${APP_NAME}=image-registry.openshift-image-registry.svc:5000/${PROJECT}/${APP_NAME}:${IMAGE_TAG} \
-                        -n ${PROJECT}
-                    """
-                }
-            }
-        }
-
-        stage('Aguardar Rollout') {
-            steps {
-                script {
-                    echo "Aguardando rollout do deployment"
-                    sh "oc rollout status deployment/${APP_NAME} -n ${PROJECT}"
+                    echo "Aguardando o rollout do novo Pod..."
+                    // Verifica se o deploy foi concluído com sucesso
+                    sh "oc rollout status deployment/${BUILD_NAME}"
                 }
             }
         }
     }
 
     post {
-        success { echo "🚀 Deploy ${APP_NAME}:${IMAGE_TAG} concluído!" }
-        failure { echo "❌ Falha no deploy ${APP_NAME}:${IMAGE_TAG}" }
+        success {
+            echo "Pipeline finalizado com sucesso! O S3 foi montado e o Supergateway está online."
+        }
+        failure {
+            echo "Ocorreu um erro no Pipeline. Verifique os logs do build ou as permissões de SCC."
+        }
     }
 }
