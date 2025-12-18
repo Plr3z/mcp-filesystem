@@ -1,25 +1,40 @@
 FROM supercorp/supergateway:latest
 
 USER root
-RUN apk add --no-cache nodejs npm ca-certificates aws-cli
 
-WORKDIR /app
+# Dependências necessárias
+RUN apk add --no-cache \
+    fuse \
+    s3fs-fuse \
+    nodejs \
+    npm \
+    ca-certificates
 
-# Instala o MCP localmente
-RUN npm install @modelcontextprotocol/server-filesystem
+RUN echo "user_allow_other" >> /etc/fuse.conf
 
-# Cria a pasta de sync com permissões para o OpenShift
-RUN mkdir -p /mnt/s3-local && chown -R 1001:0 /app /mnt/s3-local && chmod -R 775 /mnt/s3-local
+RUN mkdir -p /mnt/s3/filesystem
+
+ENV AWSACCESSKEYID=""
+ENV AWSSECRETACCESSKEY=""
+ENV S3_BUCKET=""
 
 EXPOSE 3001
-USER 1001
 
-# ENTRYPOINT corrigido para evitar erro de parse de argumentos e de assinatura AWS
 ENTRYPOINT ["/bin/sh", "-c", "\
-  echo '📥 Sincronizando S3...'; \
-  aws s3 sync s3://$S3_BUCKET /mnt/s3-local --region $AWS_REGION || echo '⚠️ Falha no sync'; \
-  echo '🚀 Iniciando MCP...'; \
-  npx @modelcontextprotocol/server-filesystem /mnt/s3-local --stdio \
+  echo \"$AWSACCESSKEYID:$AWSSECRETACCESSKEY\" > /etc/passwd-s3fs && \
+  chmod 600 /etc/passwd-s3fs && \
+  mkdir -p /mnt/s3/filesystem && \
+  echo 'Montando S3...' && \
+  s3fs $S3_BUCKET /mnt/s3/filesystem \
+    -o passwd_file=/etc/passwd-s3fs \
+    -o allow_other \
+    -o nonempty \
+    -o endpoint=us-east-2 \
+    -o dbglevel=info & \  
+  sleep 5 && \
+  echo 'Bucket montado com sucesso!' && \
+  echo 'Iniciando Supergateway com MCP Filesystem...' && \
+  supergateway --stdio \"npx -y @modelcontextprotocol/server-filesystem /mnt/s3/filesystem\" \
     --port 3001 \
     --baseUrl http://0.0.0.0:3001 \
     --ssePath /sse \
