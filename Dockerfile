@@ -1,40 +1,42 @@
-FROM node:20-alpine
+FROM supercorp/supergateway:latest
 
-RUN apk add --no-cache rclone ca-certificates
+USER root
 
-WORKDIR /app
+# Dependências necessárias
+RUN apk add --no-cache \
+    fuse \
+    s3fs-fuse \
+    nodejs \
+    npm \
+    ca-certificates
 
-# Instalamos os pacotes e limpamos o cache para economizar espaço
-RUN npm install -g supergateway @modelcontextprotocol/server-filesystem && \
-    npm cache clean --force
+RUN echo "user_allow_other" >> /etc/fuse.conf
 
-# Criamos as pastas necessárias com permissões totais para o usuário do OpenShift
-RUN mkdir -p /app/s3data /app/config /app/cache /app/.npm-global && \
-    chmod -R 777 /app
+RUN mkdir -p /mnt/s3/filesystem
 
-# Configurações para o Rclone e NPM rodarem sem root
-ENV RCLONE_CONFIG=/app/config/rclone.conf
-ENV RCLONE_CACHE_DIR=/app/cache
-ENV NPM_CONFIG_PREFIX=/app/.npm-global
-ENV PATH=$PATH:/app/.npm-global/bin:/usr/local/bin
-ENV AWS_REGION="us-east-2"
+ENV AWSACCESSKEYID=""
+ENV AWSSECRETACCESSKEY=""
+ENV S3_BUCKET=""
 
 EXPOSE 3001
 
-# ... (mantenha o topo igual)
-
 ENTRYPOINT ["/bin/sh", "-c", "\
-  echo 'Sincronizando S3...' && \
-  rclone sync :s3:$S3_BUCKET /app/s3data \
-    --s3-provider=AWS \
-    --s3-access-key-id=\"$AWS_ACCESS_KEY_ID\" \
-    --s3-secret-access-key=\"$AWS_SECRET_ACCESS_KEY\" \
-    --s3-region=\"$AWS_REGION\" && \
-  echo 'Iniciando Supergateway...' && \
-  supergateway --stdio \"mcp-server-filesystem /app/s3data\" \
+  echo \"$AWSACCESSKEYID:$AWSSECRETACCESSKEY\" > /etc/passwd-s3fs && \
+  chmod 600 /etc/passwd-s3fs && \
+  mkdir -p /mnt/s3/filesystem && \
+  echo 'Montando S3...' && \
+  s3fs $S3_BUCKET /mnt/s3/filesystem \
+    -o passwd_file=/etc/passwd-s3fs \
+    -o allow_other \
+    -o nonempty \
+    -o endpoint=us-east-2 \
+    -o dbglevel=info & \  
+  sleep 5 && \
+  echo 'Bucket montado com sucesso!' && \
+  echo 'Iniciando Supergateway com MCP Filesystem...' && \
+  supergateway --stdio \"npx -y @modelcontextprotocol/server-filesystem /mnt/s3/filesystem\" \
     --port 3001 \
-    --baseUrl \"$EXTERNAL_URL\" \
-    --cors=\"*\" \
+    --baseUrl http://0.0.0.0:3001 \
     --ssePath /sse \
     --messagePath /message \
 "]
